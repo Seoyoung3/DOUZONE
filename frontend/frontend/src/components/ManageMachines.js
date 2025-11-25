@@ -5,6 +5,12 @@ const API_BASE = "http://localhost:8080";
 
 const ManageMachines = () => {
   const [machines, setMachines] = useState([]);
+
+  // 모달(중앙 팝업 창)
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [currentId, setCurrentId] = useState(null);
+
   const [form, setForm] = useState({
     stationName: "",
     line: "",
@@ -13,45 +19,65 @@ const ManageMachines = () => {
     phone: "",
   });
 
+  /** 발급기 목록 조회 */
   const loadMachines = async () => {
-  try {
-    const res = await fetch(`${API_BASE}/api/machines`);
-    console.log("GET /api/machines status:", res.status);
+    try {
+      const res = await fetch(`${API_BASE}/api/machines`);
 
-    if (res.status === 204) {
-      console.log("데이터 없음 (204)");
-      setMachines([]);
-      return;
+      if (res.status === 204) {
+        setMachines([]);
+        return;
+      }
+      if (!res.ok) throw new Error("조회 실패");
+
+      const data = await res.json();
+      setMachines(data);
+    } catch (err) {
+      console.error(err);
+      alert("목록 조회 오류");
     }
-
-    if (!res.ok) {
-      const text = await res.text();
-      console.error("백엔드 에러 응답:", text);
-      alert("백엔드에서 발급기 목록을 가져오는 중 오류가 발생했습니다.");
-      return;
-    }
-
-    const data = await res.json();
-    console.log("발급기 개수:", data.length);
-    setMachines(data);
-  } catch (err) {
-    console.error("[LOAD ERROR] fetch 자체 실패:", err);
-    alert("발급기 목록을 불러오는 중 오류가 발생했습니다.");
-  }
-};
+  };
 
   useEffect(() => {
     loadMachines();
   }, []);
 
+  /** 입력 핸들러 */
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleAdd = async (e) => {
-    e.preventDefault();
+  /** 모달 열기 (등록) */
+  const openAddModal = () => {
+    setEditMode(false);
+    setCurrentId(null);
+    setForm({
+      stationName: "",
+      line: "",
+      detailLocation: "",
+      contractor: "",
+      phone: "",
+    });
+    setModalOpen(true);
+  };
 
+  /** 모달 열기 (수정) */
+  const openEditModal = (m) => {
+    setEditMode(true);
+    setCurrentId(m.id);
+    setForm({
+      stationName: m.stationName,
+      line: m.line,
+      detailLocation: m.detailLocation,
+      contractor: m.contractor,
+      phone: m.phone,
+    });
+    setModalOpen(true);
+  };
+
+  /** 등록 */
+  const handleAdd = async () => {
     if (!form.stationName || !form.line) {
       alert("역명과 호선은 필수입니다.");
       return;
@@ -64,88 +90,49 @@ const ManageMachines = () => {
         body: JSON.stringify(form),
       });
 
-      if (!res.ok) {
-        throw new Error("등록 실패");
-      }
+      if (!res.ok) throw new Error("등록 실패");
 
-      const saved = await res.json();
-      setMachines((prev) => [...prev, saved]);
-      setForm({
-        stationName: "",
-        line: "",
-        detailLocation: "",
-        contractor: "",
-        phone: "",
-      });
+      await loadMachines();
+      setModalOpen(false);
     } catch (err) {
       console.error(err);
-      alert("발급기 등록 중 오류가 발생했습니다.");
+      alert("등록 오류");
     }
   };
-  // 여기서는 상세위치/업체/전화만 수정 
-  // stationName/line은 고정이라고 가정 
-  // => 백엔드에서 updateMachine을 상세위치/업체/전화번호/층만 수정이라고 잡아놨었음. 역명, 호선을 바꾸면 지오코딩도 다시 돌려야해서
-  // 역명, 호선은 처음 등록할 때만 정하고, 위치/업체/전화 번호 위주로 관리
-  const handleEdit = async (m) => {
-    const detailLocation = prompt(
-      "상세 위치를 수정하세요:",
-      m.detailLocation || ""
-    );
-    if (detailLocation === null) return;
 
-    const contractor = prompt(
-      "계약자/업체명을 수정하세요:",
-      m.contractor || ""
-    );
-    if (contractor === null) return;
-
-    const phone = prompt("전화번호를 수정하세요:", m.phone || "");
-    if (phone === null) return;
-
-    const body = {
-      ...m,
-      detailLocation,
-      contractor,
-      phone,
-    };
-
+  /** 수정 */
+  const handleEdit = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/machines/${m.id}`, {
+      const res = await fetch(`${API_BASE}/api/machines/${currentId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(form),
       });
 
-      if (!res.ok) {
-        throw new Error("수정 실패");
-      }
+      if (!res.ok) throw new Error("수정 실패");
 
-      const updated = await res.json();
-      setMachines((prev) =>
-        prev.map((item) => (item.id === m.id ? updated : item))
-      );
+      await loadMachines();
+      setModalOpen(false);
     } catch (err) {
       console.error(err);
-      alert("발급기 수정 중 오류가 발생했습니다.");
+      alert("수정 오류");
     }
   };
 
+  /** 삭제 */
   const handleDelete = async (id) => {
-    if (!window.confirm("정말 삭제하시겠습니까?")) return;
+    if (!window.confirm("삭제할까요?")) return;
 
     try {
       const res = await fetch(`${API_BASE}/api/machines/${id}`, {
         method: "DELETE",
       });
 
-      if (!res.ok) {
-        throw new Error("삭제 실패");
-      }
-
-      setMachines((prev) => prev.filter((m) => m.id !== id));
+      if (!res.ok) throw new Error("삭제 실패");
+      await loadMachines();
     } catch (err) {
       console.error(err);
-      alert("발급기 삭제 중 오류가 발생했습니다.");
+      alert("삭제 오류");
     }
   };
 
@@ -153,64 +140,17 @@ const ManageMachines = () => {
     <div>
       <div className="card">
         <div className="card-header">
-          <div>
-            <h1 className="card-title">무인민원발급기 관리</h1>
-            <p className="card-subtitle">
-              새로운 발급기를 등록하고, 기존 발급기의 상세 정보를 관리합니다.
-            </p>
-          </div>
-        </div>
+          <h1 className="card-title">무인민원발급기 관리</h1>
+          <p className="card-subtitle">새 발급기 등록 및 정보 관리</p>
 
-        {/* 등록 폼 */}
-        <form
-          onSubmit={handleAdd}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(5, minmax(0, 1fr)) auto",
-            gap: "8px",
-            marginBottom: "16px",
-            alignItems: "center",
-          }}
-        >
-          <input
-            type="text"
-            name="stationName"
-            value={form.stationName}
-            onChange={handleChange}
-            placeholder="역명 (예: 강남역)"
-          />
-          <input
-            type="text"
-            name="line"
-            value={form.line}
-            onChange={handleChange}
-            placeholder="호선 (예: 2호선)"
-          />
-          <input
-            type="text"
-            name="detailLocation"
-            value={form.detailLocation}
-            onChange={handleChange}
-            placeholder="상세 위치"
-          />
-          <input
-            type="text"
-            name="contractor"
-            value={form.contractor}
-            onChange={handleChange}
-            placeholder="업체명"
-          />
-          <input
-            type="text"
-            name="phone"
-            value={form.phone}
-            onChange={handleChange}
-            placeholder="전화번호"
-          />
-          <button type="submit" className="btn btn-primary">
-            등록
+          <button
+            className="btn btn-primary"
+            style={{ marginTop: 12 }}
+            onClick={openAddModal}
+          >
+            ➕ 신규 발급기 등록
           </button>
-        </form>
+        </div>
 
         {/* 테이블 */}
         <div className="table-wrapper">
@@ -228,7 +168,7 @@ const ManageMachines = () => {
             <tbody>
               {machines.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "16px" }}>
+                  <td colSpan={6} style={{ textAlign: "center", padding: 16 }}>
                     등록된 발급기가 없습니다.
                   </td>
                 </tr>
@@ -236,23 +176,21 @@ const ManageMachines = () => {
               {machines.map((m) => (
                 <tr key={m.id}>
                   <td>{m.stationName}</td>
-                  <td>
-                    <span className="badge-line">{m.line}</span>
-                  </td>
+                  <td>{m.line}</td>
                   <td>{m.detailLocation}</td>
                   <td>{m.contractor}</td>
                   <td>{m.phone}</td>
                   <td>
                     <button
                       className="btn btn-outline"
-                      onClick={() => handleEdit(m)}
-                      style={{ marginRight: "4px" }}
+                      onClick={() => openEditModal(m)}
                     >
                       수정
                     </button>
                     <button
                       className="btn btn-outline"
                       onClick={() => handleDelete(m.id)}
+                      style={{ marginLeft: 6 }}
                     >
                       삭제
                     </button>
@@ -263,6 +201,146 @@ const ManageMachines = () => {
           </table>
         </div>
       </div>
+
+      {/* ============================= */}
+      {/*         중앙 모달 팝업        */}
+      {/* ============================= */}
+      {modalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            backgroundColor: "rgba(0,0,0,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+          }}
+          onClick={() => setModalOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 480,
+              background: "white",
+              padding: "30px",
+              borderRadius: "12px",
+              boxShadow: "0 10px 24px rgba(0,0,0,0.15)",
+              animation: "fadeIn 0.2s ease",
+            }}
+          >
+            {/* 헤더 */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginBottom: 20,
+              }}
+            >
+              <h2 style={{ margin: 0 }}>
+                {editMode ? "발급기 정보 수정" : "신규 발급기 등록"}
+              </h2>
+              <button
+                onClick={() => setModalOpen(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  fontSize: 22,
+                  cursor: "pointer",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 입력 폼 – 넓고 간격 넉넉하게 */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "14px",
+                marginBottom: "8px",
+              }}
+            >
+              <input
+                name="stationName"
+                value={form.stationName}
+                onChange={handleChange}
+                placeholder="역명"
+                style={{
+                  padding: "12px",
+                  fontSize: "16px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                }}
+              />
+
+              <input
+                name="line"
+                value={form.line}
+                onChange={handleChange}
+                placeholder="호선"
+                style={{
+                  padding: "12px",
+                  fontSize: "16px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                }}
+              />
+
+              <input
+                name="detailLocation"
+                value={form.detailLocation}
+                onChange={handleChange}
+                placeholder="상세 위치"
+                style={{
+                  padding: "12px",
+                  fontSize: "16px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                }}
+              />
+
+              <input
+                name="contractor"
+                value={form.contractor}
+                onChange={handleChange}
+                placeholder="업체명"
+                style={{
+                  padding: "12px",
+                  fontSize: "16px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                }}
+              />
+
+              <input
+                name="phone"
+                value={form.phone}
+                onChange={handleChange}
+                placeholder="전화번호"
+                style={{
+                  padding: "12px",
+                  fontSize: "16px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                }}
+              />
+            </div>
+
+            <button
+              className="btn btn-primary"
+              onClick={editMode ? handleEdit : handleAdd}
+              style={{ width: "100%", padding: "12px", fontSize: "16px" }}
+            >
+              {editMode ? "수정 완료" : "등록 완료"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
